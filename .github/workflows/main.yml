@@ -50,6 +50,12 @@ jobs:
           echo "rdp protocol enabled."
           exit 0
 
+      - name: installing powerpoint
+        run: |
+          echo "installing microsoft powerpoint using winget..."
+          winget install Microsoft.PowerPoint --silent --accept-package-agreements --accept-source-agreements
+          echo "powerpoint installation completed."
+
       - name: maintaining connection
         run: |
           echo "=========================================="
