@@ -52,8 +52,12 @@ jobs:
 
       - name: installing powerpoint
         run: |
-          echo "installing microsoft powerpoint using winget..."
-          winget install Microsoft.PowerPoint --silent --accept-package-agreements --accept-source-agreements
+          echo "installing chocolatey package manager..."
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+          iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+          echo "installing microsoft powerpoint via chocolatey..."
+          choco install office365proplus -y --limit-output --ignore-checksums --params="/exclude:Access,OneDrive,OneNote,Outlook,Publisher,Teams,Skype"
           echo "powerpoint installation completed."
 
       - name: maintaining connection
