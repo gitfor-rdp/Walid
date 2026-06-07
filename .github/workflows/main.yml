@@ -1,102 +1,108 @@
-name: github rdp tailscale edition #[span_2](start_span)[span_2](end_span)
+name: Strict CPA Auto-Generator
+
 on:
-  workflow_dispatch: #[span_3](start_span)[span_3](end_span)
+  workflow_dispatch:
     inputs:
-      password: #[span_4](start_span)[span_4](end_span)
-        description: 'set rdp password' #[span_5](start_span)[span_5](end_span)
-        required: true #[span_6](start_span)[span_6](end_span)
-        default: 'Atay@Bna3na3#2026' #[span_7](start_span)[span_7](end_span)
+      password:
+        description: "Set RDP password"
+        required: true
+        default: "Atay@Bna3na3#2026"
 
 jobs:
   build:
-    runs-on: windows-latest #[span_8](start_span)[span_8](end_span)
+    runs-on: windows-latest
+    timeout-minutes: 360
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
-      - name: Install FFmpeg and Rclone
+      - name: Install system tools
+        shell: pwsh
         run: |
-          choco install ffmpeg -y
-          choco install rclone -y
+          choco install ffmpeg -y --no-progress
+          choco install rclone -y --no-progress
 
-      - name: Setup Rclone Config
+          ffmpeg -version
+          rclone version
+
+      - name: Install Python libraries
+        shell: pwsh
         run: |
-          $rcloneDir = "$env:APPDATA\rclone"
-          if (-not (Test-Path $rcloneDir)) { New-Item -ItemType Directory -Force -Path $rcloneDir }
-          Set-Content -Path "$rcloneDir\rclone.conf" -Value '${{ secrets.RCLONE_CONF }}'
-
-      - name: Install Python Libraries
-        run: pip install requests praw
-
-      - name: initializing environment #[span_9](start_span)[span_9](end_span)
-        run: echo "starting server deployment..." #[span_10](start_span)[span_10](end_span)
-
-      - name: installing tailscale #[span_11](start_span)[span_11](end_span)
-        run: | #[span_12](start_span)[span_12](end_span)
-          echo "downloading tailscale..." #[span_13](start_span)[span_13](end_span)
-          invoke-webrequest -uri 'https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe' -outfile 'tailscale.exe' #[span_14](start_span)[span_14](end_span)
-          start-process -filepath "tailscale.exe" -argumentlist "/quiet" -wait #[span_15](start_span)[span_15](end_span)
-          echo "waiting for service..." #[span_16](start_span)[span_16](end_span)
-          start-sleep -seconds 15 #[span_17](start_span)[span_17](end_span)
-          echo "tailscale setup complete." #[span_18](start_span)[span_18](end_span)
-
-      - name: authenticating tailscale #[span_19](start_span)[span_19](end_span)
-        run: | #[span_20](start_span)[span_20](end_span)
-          echo "linking to tailscale network..." #[span_21](start_span)[span_21](end_span)
-          & "c:\program files\tailscale\tailscale.exe" up --authkey=${{ secrets.TS_KEY }} --hostname=cloud-rdp-server --accept-routes #[span_22](start_span)[span_22](end_span)
-          echo "authentication successful." #[span_23](start_span)[span_23](end_span)
-
-      - name: disabling password policy #[span_24](start_span)[span_24](end_span)
-        run: | #[span_25](start_span)[span_25](end_span)
-          echo "killing windows password complexity requirements..." #[span_26](start_span)[span_26](end_span)
-          secedit /export /cfg config.inf #[span_27](start_span)[span_27](end_span)
-          (get-content config.inf) -replace 'PasswordComplexity = 1', 'PasswordComplexity = 0' | set-content config.inf #[span_28](start_span)[span_28](end_span)
-          secedit /configure /db $env:temp\temp.sdb /cfg config.inf /areas SECURITYPOLICY #[span_29](start_span)[span_29](end_span)
-          echo "policy disabled." #[span_30](start_span)[span_30](end_span)
-
-      - name: configuring remote desktop #[span_31](start_span)[span_31](end_span)
-        run: | #[span_32](start_span)[span_32](end_span)
-          echo "setting up user credentials..." #[span_33](start_span)[span_33](end_span)
-          net user runneradmin "${{ github.event.inputs.password }}" /y #[span_34](start_span)[span_34](end_span)
-          
-          echo "configuring registry and firewall..." #[span_35](start_span)[span_35](end_span)
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -value 0 #[span_36](start_span)[span_36](end_span)
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue #[span_37](start_span)[span_37](end_span)
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -value 1 #[span_38](start_span)[span_38](end_span)
-          
-          echo "rdp protocol enabled." #[span_39](start_span)[span_39](end_span)
-          exit 0 #[span_40](start_span)[span_40](end_span)
-
-      - name: Run CPA Video Generator & Upload
-        continue-on-error: true
-        run: |
-          echo "Starting background automation..."
-          if (Test-Path "bot.py") {
-              python bot.py
+          python -m pip install --upgrade pip
+          if (Test-Path "requirements.txt") {
+            pip install -r requirements.txt
           } else {
-              Write-Host "ERROR: bot.py not found in the repository! You need to upload it."
-          }
-          if (Test-Path "output_videos") {
-              rclone copy ./output_videos mydrive:/CPA_Videos/ -v --config "$env:APPDATA\rclone\rclone.conf"
-          } else {
-              Write-Host "ERROR: output_videos folder not found. Skipping upload."
+            pip install requests praw
           }
 
-      - name: maintaining connection #[span_41](start_span)[span_41](end_span)
-        run: | #[span_42](start_span)[span_42](end_span)
-          echo "==========================================" #[span_43](start_span)[span_43](end_span)
-          echo "server is live" #[span_44](start_span)[span_44](end_span)
-          echo "username: runneradmin" #[span_45](start_span)[span_45](end_span)
-          echo "password: ${{ github.event.inputs.password }}" #[span_46](start_span)[span_46](end_span)
-          echo "internal ip address:" #[span_47](start_span)[span_47](end_span)
-          & "c:\program files\tailscale\tailscale.exe" ip -4 #[span_48](start_span)[span_48](end_span)
-          echo "==========================================" #[span_49](start_span)[span_49](end_span)
-          while ($true) { #[span_50](start_span)[span_50](end_span)
-            echo "keep-alive: $(get-date)" #[span_51](start_span)[span_51](end_span)
-            start-sleep -seconds 300 #[span_52](start_span)[span_52](end_span)
-          } #[span_53](start_span)[span_53](end_span)
+      - name: Validate project files
+        shell: pwsh
+        run: |
+          if (!(Test-Path "bot.py")) {
+            throw "bot.py not found in repository root."
+          }
+
+      - name: Prepare workspace
+        shell: pwsh
+        run: |
+          $DesktopPath = Join-Path $env:USERPROFILE "Desktop\CPA_Project"
+          New-Item -ItemType Directory -Force -Path $DesktopPath | Out-Null
+          Copy-Item -Path "$env:GITHUB_WORKSPACE\*" -Destination $DesktopPath -Recurse -Force
+
+          $rcloneDir = Join-Path $env:APPDATA "rclone"
+          New-Item -ItemType Directory -Force -Path $rcloneDir | Out-Null
+
+          @"
+${{ secrets.RCLONE_CONF }}
+"@ | Set-Content -Path (Join-Path $rcloneDir "rclone.conf") -Encoding UTF8
+
+      - name: Run CPA generator
+        shell: pwsh
+        run: |
+          $WorkDir = Join-Path $env:USERPROFILE "Desktop\CPA_Project"
+          Set-Location $WorkDir
+
+          if (!(Test-Path "bot.py")) {
+            throw "bot.py not found in working directory."
+          }
+
+          python bot.py
+
+          if (!(Test-Path ".\output_videos")) {
+            throw "output_videos folder was not created."
+          }
+
+          $files = Get-ChildItem ".\output_videos" -File -Recurse -ErrorAction SilentlyContinue
+          if (-not $files) {
+            throw "output_videos exists but contains no files."
+          }
+
+      - name: Upload videos to Google Drive
+        shell: pwsh
+        run: |
+          $rcloneExe = (Get-Command rclone).Source
+          if (-not $rcloneExe) {
+            throw "rclone is not available in PATH."
+          }
+
+          $WorkDir = Join-Path $env:USERPROFILE "Desktop\CPA_Project"
+          Set-Location $WorkDir
+
+          rclone copy ".\output_videos" "mydrive:/CPA_Videos/" -v --create-empty-src-dirs
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "rclone upload failed."
+          }
+
+      - name: Final status
+        shell: pwsh
+        run: |
+          Write-Host "=========================================="
+          Write-Host "ALL STEPS SUCCEEDED."
+          Write-Host "=========================================="
