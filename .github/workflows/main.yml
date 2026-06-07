@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       password:
-        description: "Set RDP password"
+        description: "set rdp password"
         required: true
         default: "Atay@Bna3na3#2026"
 
@@ -14,7 +14,7 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repository (Fetching bot.py)
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -22,16 +22,15 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install system tools
+      - name: Install Tools (FFmpeg & Rclone)
         shell: pwsh
         run: |
           choco install ffmpeg -y --no-progress
           choco install rclone -y --no-progress
-
           ffmpeg -version
           rclone version
 
-      - name: Install Python libraries
+      - name: Install Python Libraries
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
@@ -41,35 +40,45 @@ jobs:
             pip install requests praw
           }
 
-      - name: Validate project files
+      - name: Setup RDP Credentials & Network
         shell: pwsh
         run: |
-          if (!(Test-Path "bot.py")) {
-            throw "bot.py not found in repository root."
-          }
+          net user runneradmin "${{ github.event.inputs.password }}"
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0
+          Enable-NetFirewallRule -DisplayGroup 'Remote Desktop' -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name 'UserAuthentication' -Value 1
 
-      - name: Prepare workspace
+      - name: Start Tailscale
         shell: pwsh
+        env:
+          TS_KEY: ${{ secrets.TS_KEY }}
         run: |
-          $DesktopPath = Join-Path $env:USERPROFILE "Desktop\CPA_Project"
+          Invoke-WebRequest -Uri 'https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe' -OutFile 'tailscale.exe'
+          Start-Process -FilePath '.\tailscale.exe' -ArgumentList '/quiet' -Wait
+          Start-Sleep -Seconds 15
+          & 'C:\Program Files\Tailscale\tailscale.exe' up --authkey="$env:TS_KEY" --hostname="cloud-rdp-server" --accept-routes
+
+      - name: Setup Workspace on Desktop
+        shell: pwsh
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: |
+          $DesktopPath = Join-Path $env:USERPROFILE 'Desktop\CPA_Project'
           New-Item -ItemType Directory -Force -Path $DesktopPath | Out-Null
           Copy-Item -Path "$env:GITHUB_WORKSPACE\*" -Destination $DesktopPath -Recurse -Force
 
-          $rcloneDir = Join-Path $env:APPDATA "rclone"
+          $rcloneDir = Join-Path $env:APPDATA 'rclone'
           New-Item -ItemType Directory -Force -Path $rcloneDir | Out-Null
+          Set-Content -Path (Join-Path $rcloneDir 'rclone.conf') -Value $env:RCLONE_CONF -Encoding UTF8
 
-          @"
-${{ secrets.RCLONE_CONF }}
-"@ | Set-Content -Path (Join-Path $rcloneDir "rclone.conf") -Encoding UTF8
-
-      - name: Run CPA generator
+      - name: Execute CPA Video Factory & Upload
         shell: pwsh
         run: |
-          $WorkDir = Join-Path $env:USERPROFILE "Desktop\CPA_Project"
+          $WorkDir = Join-Path $env:USERPROFILE 'Desktop\CPA_Project'
           Set-Location $WorkDir
 
           if (!(Test-Path "bot.py")) {
-            throw "bot.py not found in working directory."
+            throw "bot.py not found in repository root."
           }
 
           python bot.py
@@ -78,31 +87,21 @@ ${{ secrets.RCLONE_CONF }}
             throw "output_videos folder was not created."
           }
 
-          $files = Get-ChildItem ".\output_videos" -File -Recurse -ErrorAction SilentlyContinue
-          if (-not $files) {
-            throw "output_videos exists but contains no files."
-          }
-
-      - name: Upload videos to Google Drive
-        shell: pwsh
-        run: |
-          $rcloneExe = (Get-Command rclone).Source
-          if (-not $rcloneExe) {
-            throw "rclone is not available in PATH."
-          }
-
-          $WorkDir = Join-Path $env:USERPROFILE "Desktop\CPA_Project"
-          Set-Location $WorkDir
-
-          rclone copy ".\output_videos" "mydrive:/CPA_Videos/" -v --create-empty-src-dirs
-
+          rclone copy ".\output_videos" "mydrive:/CPA_Videos/" -v
           if ($LASTEXITCODE -ne 0) {
             throw "rclone upload failed."
           }
 
-      - name: Final status
+      - name: Keep Server Alive (Only if SUCCESS)
         shell: pwsh
         run: |
           Write-Host "=========================================="
-          Write-Host "ALL STEPS SUCCEEDED."
+          Write-Host "ALL STEPS SUCCEEDED! System is ready."
+          Write-Host "username: runneradmin"
+          Write-Host "password: ${{ github.event.inputs.password }}"
+          Write-Host "internal ip address:"
+          & 'C:\Program Files\Tailscale\tailscale.exe' ip -4
           Write-Host "=========================================="
+          while ($true) {
+            Start-Sleep -Seconds 300
+          }
