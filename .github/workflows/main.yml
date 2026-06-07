@@ -1,76 +1,107 @@
 name: Strict CPA Auto-Generator
+
 on:
   workflow_dispatch:
     inputs:
       password:
-        description: 'set rdp password'
+        description: "set rdp password"
         required: true
-        default: 'Atay@Bna3na3#2026'
+        default: "Atay@Bna3na3#2026"
 
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 360
+
     steps:
-      - name: 1. Checkout repository (Fetching bot.py)
-        uses: actions/checkout@v3
+      - name: Checkout repository (Fetching bot.py)
+        uses: actions/checkout@v4
 
-      - name: 2. Set up Python
-        uses: actions/setup-python@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
-      - name: 3. Install Tools (FFmpeg & Rclone)
+      - name: Install Tools (FFmpeg & Rclone)
+        shell: pwsh
         run: |
-          choco install ffmpeg -y
-          choco install rclone -y
+          choco install ffmpeg -y --no-progress
+          choco install rclone -y --no-progress
+          ffmpeg -version
+          rclone version
 
-      - name: 4. Install Python Libraries
-        run: pip install requests praw
-
-      - name: 5. Setup RDP Credentials & Network
+      - name: Install Python Libraries
+        shell: pwsh
         run: |
-          net user runneradmin "${{ github.event.inputs.password }}" /y
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -value 0
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -value 1
+          python -m pip install --upgrade pip
+          if (Test-Path "requirements.txt") {
+            pip install -r requirements.txt
+          } else {
+            pip install requests praw
+          }
 
-      - name: 6. Start Tailscale
+      - name: Setup RDP Credentials & Network
+        shell: pwsh
         run: |
-          invoke-webrequest -uri 'https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe' -outfile 'tailscale.exe'
-          start-process -filepath "tailscale.exe" -argumentlist "/quiet" -wait
-          start-sleep -seconds 15
-          & "c:\program files\tailscale\tailscale.exe" up --authkey=${{ secrets.TS_KEY }} --hostname=cloud-rdp-server --accept-routes
+          net user runneradmin "${{ github.event.inputs.password }}"
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0
+          Enable-NetFirewallRule -DisplayGroup 'Remote Desktop' -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name 'UserAuthentication' -Value 1
 
-      - name: 7. Setup Workspace on Desktop
+      - name: Start Tailscale
+        shell: pwsh
+        env:
+          TS_KEY: ${{ secrets.TS_KEY }}
         run: |
-          # هاد الكود كيهز الملفات من المسار المخفي وكيحطهم ف سطح المكتب باش يبانو ليك
-          $DesktopPath = "C:\Users\runneradmin\Desktop\CPA_Project"
-          New-Item -ItemType Directory -Force -Path $DesktopPath
+          Invoke-WebRequest -Uri 'https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe' -OutFile 'tailscale.exe'
+          Start-Process -FilePath '.\tailscale.exe' -ArgumentList '/quiet' -Wait
+          Start-Sleep -Seconds 15
+          & 'C:\Program Files\Tailscale\tailscale.exe' up --authkey="$env:TS_KEY" --hostname="cloud-rdp-server" --accept-routes
+
+      - name: Setup Workspace on Desktop
+        shell: pwsh
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: |
+          $DesktopPath = Join-Path $env:USERPROFILE 'Desktop\CPA_Project'
+          New-Item -ItemType Directory -Force -Path $DesktopPath | Out-Null
           Copy-Item -Path "$env:GITHUB_WORKSPACE\*" -Destination $DesktopPath -Recurse -Force
-          
-          # إعداد ملف Rclone الخاص بالتخزين السحابي
-          $rcloneDir = "$env:APPDATA\rclone"
-          New-Item -ItemType Directory -Force -Path $rcloneDir
-          Set-Content -Path "$rcloneDir\rclone.conf" -Value '${{ secrets.RCLONE_CONF }}'
 
-      - name: 8. Execute CPA Video Factory & Upload
+          $rcloneDir = Join-Path $env:APPDATA 'rclone'
+          New-Item -ItemType Directory -Force -Path $rcloneDir | Out-Null
+          Set-Content -Path (Join-Path $rcloneDir 'rclone.conf') -Value $env:RCLONE_CONF -Encoding UTF8
+
+      - name: Execute CPA Video Factory & Upload
+        shell: pwsh
         run: |
-          # الدخول لمجلد سطح المكتب وتشغيل السكريبت
-          cd "C:\Users\runneradmin\Desktop\CPA_Project"
+          $WorkDir = Join-Path $env:USERPROFILE 'Desktop\CPA_Project'
+          Set-Location $WorkDir
+
+          if (!(Test-Path "bot.py")) {
+            throw "bot.py not found in repository root."
+          }
+
           python bot.py
-          
-          # رفع الفيديوهات إلى Google Drive
-          rclone copy ./output_videos mydrive:/CPA_Videos/ -v
 
-      - name: 9. Keep Server Alive (Only if SUCCESS)
+          if (!(Test-Path ".\output_videos")) {
+            throw "output_videos folder was not created."
+          }
+
+          rclone copy ".\output_videos" "mydrive:/CPA_Videos/" -v
+          if ($LASTEXITCODE -ne 0) {
+            throw "rclone upload failed."
+          }
+
+      - name: Keep Server Alive (Only if SUCCESS)
+        shell: pwsh
         run: |
-          echo "=========================================="
-          echo "✅ ALL STEPS SUCCEEDED! System is ready."
-          echo "username: runneradmin"
-          echo "password: ${{ github.event.inputs.password }}"
-          echo "internal ip address:"
-          & "c:\program files\tailscale\tailscale.exe" ip -4
-          echo "=========================================="
+          Write-Host "=========================================="
+          Write-Host "ALL STEPS SUCCEEDED! System is ready."
+          Write-Host "username: runneradmin"
+          Write-Host "password: ${{ github.event.inputs.password }}"
+          Write-Host "internal ip address:"
+          & 'C:\Program Files\Tailscale\tailscale.exe' ip -4
+          Write-Host "=========================================="
           while ($true) {
-            start-sleep -seconds 300
+            Start-Sleep -Seconds 300
           }
