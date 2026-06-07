@@ -11,33 +11,28 @@ jobs:
   build:
     runs-on: windows-latest #[span_8](start_span)[span_8](end_span)
     steps:
-      # 1. جلب الملفات من المستودع ديالك (ضرورية باش يقرا السكريبت bot.py)
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      # 2. تثبيت بايثون
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      # 3. تثبيت أدوات الأتمتة الخاصة بـ CPA (باستعمال بيئة ويندوز)
       - name: Install FFmpeg and Rclone
         run: |
           choco install ffmpeg -y
           choco install rclone -y
 
-      # 4. إعداد ملف Rclone الخاص بالتخزين السحابي
       - name: Setup Rclone Config
         run: |
-          mkdir -p "$env:APPDATA\rclone"
-          Set-Content -Path "$env:APPDATA\rclone\rclone.conf" -Value "${{ secrets.RCLONE_CONF }}"
+          $rcloneDir = "$env:APPDATA\rclone"
+          if (-not (Test-Path $rcloneDir)) { New-Item -ItemType Directory -Force -Path $rcloneDir }
+          Set-Content -Path "$rcloneDir\rclone.conf" -Value '${{ secrets.RCLONE_CONF }}'
 
-      # 5. تثبيت مكتبات بايثون
       - name: Install Python Libraries
         run: pip install requests praw
 
-      # 6. إعداد بيئة السيرفر الخاصة بك
       - name: initializing environment #[span_9](start_span)[span_9](end_span)
         run: echo "starting server deployment..." #[span_10](start_span)[span_10](end_span)
 
@@ -75,25 +70,33 @@ jobs:
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -value 1 #[span_38](start_span)[span_38](end_span)
           
           echo "rdp protocol enabled." #[span_39](start_span)[span_39](end_span)
+          exit 0 #[span_40](start_span)[span_40](end_span)
 
-      # 7. تشغيل سكريبت الفيديوهات والرفع التلقائي
       - name: Run CPA Video Generator & Upload
+        continue-on-error: true
         run: |
           echo "Starting background automation..."
-          python bot.py
-          rclone copy ./output_videos mydrive:/CPA_Videos/ -v
+          if (Test-Path "bot.py") {
+              python bot.py
+          } else {
+              Write-Host "ERROR: bot.py not found in the repository! You need to upload it."
+          }
+          if (Test-Path "output_videos") {
+              rclone copy ./output_videos mydrive:/CPA_Videos/ -v --config "$env:APPDATA\rclone\rclone.conf"
+          } else {
+              Write-Host "ERROR: output_videos folder not found. Skipping upload."
+          }
 
-      # 8. إبقاء السيرفر متصلا لتتمكن من الدخول إليه يدوياً
-      - name: maintaining connection #[span_40](start_span)[span_40](end_span)
-        run: | #[span_41](start_span)[span_41](end_span)
-          echo "==========================================" #[span_42](start_span)[span_42](end_span)
-          echo "server is live" #[span_43](start_span)[span_43](end_span)
-          echo "username: runneradmin" #[span_44](start_span)[span_44](end_span)
-          echo "password: ${{ github.event.inputs.password }}" #[span_45](start_span)[span_45](end_span)
-          echo "internal ip address:" #[span_46](start_span)[span_46](end_span)
-          & "c:\program files\tailscale\tailscale.exe" ip -4 #[span_47](start_span)[span_47](end_span)
-          echo "==========================================" #[span_48](start_span)[span_48](end_span)
-          while ($true) { #[span_49](start_span)[span_49](end_span)
-            echo "keep-alive: $(get-date)" #[span_50](start_span)[span_50](end_span)
-            start-sleep -seconds 300 #[span_51](start_span)[span_51](end_span)
-          } #[span_52](start_span)[span_52](end_span)
+      - name: maintaining connection #[span_41](start_span)[span_41](end_span)
+        run: | #[span_42](start_span)[span_42](end_span)
+          echo "==========================================" #[span_43](start_span)[span_43](end_span)
+          echo "server is live" #[span_44](start_span)[span_44](end_span)
+          echo "username: runneradmin" #[span_45](start_span)[span_45](end_span)
+          echo "password: ${{ github.event.inputs.password }}" #[span_46](start_span)[span_46](end_span)
+          echo "internal ip address:" #[span_47](start_span)[span_47](end_span)
+          & "c:\program files\tailscale\tailscale.exe" ip -4 #[span_48](start_span)[span_48](end_span)
+          echo "==========================================" #[span_49](start_span)[span_49](end_span)
+          while ($true) { #[span_50](start_span)[span_50](end_span)
+            echo "keep-alive: $(get-date)" #[span_51](start_span)[span_51](end_span)
+            start-sleep -seconds 300 #[span_52](start_span)[span_52](end_span)
+          } #[span_53](start_span)[span_53](end_span)
