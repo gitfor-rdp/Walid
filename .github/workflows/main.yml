@@ -1,75 +1,99 @@
-name: github rdp tailscale edition
+name: github rdp tailscale edition #[span_2](start_span)[span_2](end_span)
 on:
-  workflow_dispatch:
+  workflow_dispatch: #[span_3](start_span)[span_3](end_span)
     inputs:
-      password:
-        description: 'set rdp password'
-        required: true
-        default: 'Atay@Bna3na3#2026'
+      password: #[span_4](start_span)[span_4](end_span)
+        description: 'set rdp password' #[span_5](start_span)[span_5](end_span)
+        required: true #[span_6](start_span)[span_6](end_span)
+        default: 'Atay@Bna3na3#2026' #[span_7](start_span)[span_7](end_span)
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-latest #[span_8](start_span)[span_8](end_span)
     steps:
-      - name: initializing environment
-        run: echo "starting server deployment..."
+      # 1. جلب الملفات من المستودع ديالك (ضرورية باش يقرا السكريبت bot.py)
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      - name: installing tailscale
-        run: |
-          echo "downloading tailscale..."
-          invoke-webrequest -uri 'https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe' -outfile 'tailscale.exe'
-          start-process -filepath "tailscale.exe" -argumentlist "/quiet" -wait
-          echo "waiting for service..."
-          start-sleep -seconds 15
-          echo "tailscale setup complete."
+      # 2. تثبيت بايثون
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
 
-      - name: authenticating tailscale
+      # 3. تثبيت أدوات الأتمتة الخاصة بـ CPA (باستعمال بيئة ويندوز)
+      - name: Install FFmpeg and Rclone
         run: |
-          echo "linking to tailscale network..."
-          & "c:\program files\tailscale\tailscale.exe" up --authkey=${{ secrets.TS_KEY }} --hostname=cloud-rdp-server --accept-routes
-          echo "authentication successful."
+          choco install ffmpeg -y
+          choco install rclone -y
 
-      - name: disabling password policy
+      # 4. إعداد ملف Rclone الخاص بالتخزين السحابي
+      - name: Setup Rclone Config
         run: |
-          echo "killing windows password complexity requirements..."
-          secedit /export /cfg config.inf
-          (get-content config.inf) -replace 'PasswordComplexity = 1', 'PasswordComplexity = 0' | set-content config.inf
-          secedit /configure /db $env:temp\temp.sdb /cfg config.inf /areas SECURITYPOLICY
-          echo "policy disabled."
+          mkdir -p "$env:APPDATA\rclone"
+          Set-Content -Path "$env:APPDATA\rclone\rclone.conf" -Value "${{ secrets.RCLONE_CONF }}"
 
-      - name: configuring remote desktop
-        run: |
-          echo "setting up user credentials..."
-          net user runneradmin "${{ github.event.inputs.password }}" /y
+      # 5. تثبيت مكتبات بايثون
+      - name: Install Python Libraries
+        run: pip install requests praw
+
+      # 6. إعداد بيئة السيرفر الخاصة بك
+      - name: initializing environment #[span_9](start_span)[span_9](end_span)
+        run: echo "starting server deployment..." #[span_10](start_span)[span_10](end_span)
+
+      - name: installing tailscale #[span_11](start_span)[span_11](end_span)
+        run: | #[span_12](start_span)[span_12](end_span)
+          echo "downloading tailscale..." #[span_13](start_span)[span_13](end_span)
+          invoke-webrequest -uri 'https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe' -outfile 'tailscale.exe' #[span_14](start_span)[span_14](end_span)
+          start-process -filepath "tailscale.exe" -argumentlist "/quiet" -wait #[span_15](start_span)[span_15](end_span)
+          echo "waiting for service..." #[span_16](start_span)[span_16](end_span)
+          start-sleep -seconds 15 #[span_17](start_span)[span_17](end_span)
+          echo "tailscale setup complete." #[span_18](start_span)[span_18](end_span)
+
+      - name: authenticating tailscale #[span_19](start_span)[span_19](end_span)
+        run: | #[span_20](start_span)[span_20](end_span)
+          echo "linking to tailscale network..." #[span_21](start_span)[span_21](end_span)
+          & "c:\program files\tailscale\tailscale.exe" up --authkey=${{ secrets.TS_KEY }} --hostname=cloud-rdp-server --accept-routes #[span_22](start_span)[span_22](end_span)
+          echo "authentication successful." #[span_23](start_span)[span_23](end_span)
+
+      - name: disabling password policy #[span_24](start_span)[span_24](end_span)
+        run: | #[span_25](start_span)[span_25](end_span)
+          echo "killing windows password complexity requirements..." #[span_26](start_span)[span_26](end_span)
+          secedit /export /cfg config.inf #[span_27](start_span)[span_27](end_span)
+          (get-content config.inf) -replace 'PasswordComplexity = 1', 'PasswordComplexity = 0' | set-content config.inf #[span_28](start_span)[span_28](end_span)
+          secedit /configure /db $env:temp\temp.sdb /cfg config.inf /areas SECURITYPOLICY #[span_29](start_span)[span_29](end_span)
+          echo "policy disabled." #[span_30](start_span)[span_30](end_span)
+
+      - name: configuring remote desktop #[span_31](start_span)[span_31](end_span)
+        run: | #[span_32](start_span)[span_32](end_span)
+          echo "setting up user credentials..." #[span_33](start_span)[span_33](end_span)
+          net user runneradmin "${{ github.event.inputs.password }}" /y #[span_34](start_span)[span_34](end_span)
           
-          echo "configuring registry and firewall..."
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -value 0
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -value 1
+          echo "configuring registry and firewall..." #[span_35](start_span)[span_35](end_span)
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -value 0 #[span_36](start_span)[span_36](end_span)
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue #[span_37](start_span)[span_37](end_span)
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -value 1 #[span_38](start_span)[span_38](end_span)
           
-          echo "rdp protocol enabled."
-          exit 0
+          echo "rdp protocol enabled." #[span_39](start_span)[span_39](end_span)
 
-      - name: installing powerpoint
+      # 7. تشغيل سكريبت الفيديوهات والرفع التلقائي
+      - name: Run CPA Video Generator & Upload
         run: |
-          echo "installing chocolatey package manager..."
-          Set-ExecutionPolicy Bypass -Scope Process -Force
-          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-          iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-          echo "installing microsoft powerpoint via chocolatey..."
-          choco install office365proplus -y --limit-output --ignore-checksums --params="/exclude:Access,OneDrive,OneNote,Outlook,Publisher,Teams,Skype"
-          echo "powerpoint installation completed."
+          echo "Starting background automation..."
+          python bot.py
+          rclone copy ./output_videos mydrive:/CPA_Videos/ -v
 
-      - name: maintaining connection
-        run: |
-          echo "=========================================="
-          echo "server is live"
-          echo "username: runneradmin"
-          echo "password: ${{ github.event.inputs.password }}"
-          echo "internal ip address:"
-          & "c:\program files\tailscale\tailscale.exe" ip -4
-          echo "=========================================="
-          while ($true) {
-            echo "keep-alive: $(get-date)"
-            start-sleep -seconds 300
-          }
+      # 8. إبقاء السيرفر متصلا لتتمكن من الدخول إليه يدوياً
+      - name: maintaining connection #[span_40](start_span)[span_40](end_span)
+        run: | #[span_41](start_span)[span_41](end_span)
+          echo "==========================================" #[span_42](start_span)[span_42](end_span)
+          echo "server is live" #[span_43](start_span)[span_43](end_span)
+          echo "username: runneradmin" #[span_44](start_span)[span_44](end_span)
+          echo "password: ${{ github.event.inputs.password }}" #[span_45](start_span)[span_45](end_span)
+          echo "internal ip address:" #[span_46](start_span)[span_46](end_span)
+          & "c:\program files\tailscale\tailscale.exe" ip -4 #[span_47](start_span)[span_47](end_span)
+          echo "==========================================" #[span_48](start_span)[span_48](end_span)
+          while ($true) { #[span_49](start_span)[span_49](end_span)
+            echo "keep-alive: $(get-date)" #[span_50](start_span)[span_50](end_span)
+            start-sleep -seconds 300 #[span_51](start_span)[span_51](end_span)
+          } #[span_52](start_span)[span_52](end_span)
